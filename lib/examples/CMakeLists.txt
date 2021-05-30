@@ -55,6 +55,7 @@ else(RF_FOUND)
 
   add_executable(npdsch_ue npdsch_ue.c npdsch_ue_helper.cc)
   target_link_libraries(npdsch_ue srsran_common srsran_phy pthread rrc_asn1)
+  
 endif(RF_FOUND)
 
 if(SRSGUI_FOUND)
@@ -95,6 +96,9 @@ if(RF_FOUND)
 
   add_executable(pssch_ue pssch_ue.c)
   target_link_libraries(pssch_ue srsran_phy srsran_common srsran_rf pthread)
+  
+  add_executable(pscch_interference pscch_interference.c)
+  target_link_libraries(pscch_interference srsran_phy srsran_common srsran_rf pthread)
 
   if(SRSGUI_FOUND)
     target_link_libraries(pssch_ue ${SRSGUI_LIBRARIES})

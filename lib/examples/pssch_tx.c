@@ -30,9 +30,12 @@
 #include "srsran/phy/utils/debug.h"
 #include "srsran/phy/utils/vector.h"
 #include "srsran/phy/utils/random.h"
+#include "srsran/phy/rf/rf.h"
 
+// create a radio variable for RF
+static srsran_rf_t radio;
 
-srsran_cell_sl_t cell = {.nof_prb = 50, .N_sl_id = 168, .tm = SRSRAN_SIDELINK_TM4, .cp = SRSRAN_CP_NORM};
+srsran_cell_sl_t cell = {.nof_prb = 50, .N_sl_id = 0, .tm = SRSRAN_SIDELINK_TM4, .cp = SRSRAN_CP_NORM};
 static srsran_random_t random_gen    = NULL;
 
 uint32_t prb_start_idx = 0;
@@ -94,6 +97,10 @@ void parse_args(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+
+	//-----------------------------------------------------------------
+	// copied from pscch_test.c and then modified as needed
+
 	int ret = SRSRAN_ERROR;
 
 	parse_args(argc, argv);
@@ -103,8 +110,6 @@ int main(int argc, char** argv)
 		ERROR("Error initializing sl_comm_resource_pool");
 		return SRSRAN_ERROR;
 	}
-
-	//char sci_msg[SRSRAN_SCI_MSG_MAX_LEN] = {};
 
 	uint32_t sf_n_re   = SRSRAN_SF_LEN_RE(cell.nof_prb, cell.cp);
 	cf_t*    sf_buffer = srsran_vec_cf_malloc(sf_n_re);
@@ -146,8 +151,8 @@ int main(int argc, char** argv)
 	// Put SCI into PSCCH
 	srsran_pscch_encode(&pscch, sci_tx, sf_buffer, prb_start_idx);
 
-	//-----------------------------
-
+	//-----------------------------------------------------------------
+	// copied from pssch_test.c and then modified as needed
 	srsran_pssch_t pssch = {};
 	if (srsran_pssch_init(&pssch, &cell, &sl_comm_resource_pool) != SRSRAN_SUCCESS) {
 		ERROR("Error initializing PSSCH");
@@ -186,7 +191,17 @@ int main(int argc, char** argv)
 		exit(-1);
 	}
 
+	uint32_t sf_len = SRSRAN_SF_LEN_PRB(cell.nof_prb);
+	// int srsran_rf_send(srsran_rf_t* rf, void* data, uint32_t nsamples, bool blocking)
+	srsran_rf_send(&radio, sf_buffer_2, sf_len, 0);
+
+	printf("PSCCH has %d symbols\n", pscch.nof_symbols);
+	printf("PSSCH has %d symbols\n", pssch.nof_tx_symbols);
+	printf("\n");
+	printf("PSSCH has %d as scfdma_symbols_length\n", pssch.scfdma_symbols_len);
+
 	free(sf_buffer);
+	free(sf_buffer_2);
 	srsran_sci_free(&sci);
 	srsran_pscch_free(&pscch);
 	srsran_pssch_free(&pssch);

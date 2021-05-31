@@ -100,6 +100,9 @@ if(RF_FOUND)
   add_executable(pscch_interference pscch_interference.c)
   target_link_libraries(pscch_interference srsran_phy srsran_common srsran_rf pthread)
 
+  add_executable(pssch_tx pssch_tx.c)
+  target_link_libraries(pssch_tx srsran_phy srsran_common srsran_rf pthread)
+
   if(SRSGUI_FOUND)
     target_link_libraries(pssch_ue ${SRSGUI_LIBRARIES})
   endif(SRSGUI_FOUND)

@@ -155,7 +155,7 @@ void parse_args(prog_args_t* args, int argc, char** argv)
 
 int main(int argc, char** argv) {
 
-	// signal interrupts and/or IPC... copied from pssch_ue.c
+	// gracefully handle interrupts (like Ctrl+C)
 	signal(SIGINT, sig_int_handler);
 	sigset_t sigset;
 	sigemptyset(&sigset);
@@ -206,10 +206,26 @@ int main(int argc, char** argv) {
 	// SCI
 	srsran_sci_t sci;
 	srsran_sci_init(&sci, &cell_sl, &sl_comm_resource_pool);
+
+	uint8_t sci_tx[SRSRAN_SCI_MAX_LEN] = {};
+
+	// int srsran_sci_format1_pack(srsran_sci_t* q, uint8_t* output)
+	if(srsran_sci_format1_pack(&sci, sci_tx) != SRSRAN_SUCCESS) {
+		ERROR("Error packing SCI");
+		exit(-1);
+	}
+/*
+	srsran_pscch_t pscch = {};
+	srsran_pssch_t pssch = {};
+
+
+	// Crap below here :)
+
 	uint8_t sci_rx[SRSRAN_SCI_MAX_LEN]      = {};
 	char	sci_msg[SRSRAN_SCI_MSG_MAX_LEN] = {};
 
 	srsran_pscch_t pscch = {};
+	srsran_pssch_t pssch = {};
 
 	if(srsran_pscch_init(&pscch, SRSRAN_MAX_PRB) != SRSRAN_SUCCESS) {
 		ERROR("Error in PSCCH init");
@@ -290,5 +306,6 @@ int main(int argc, char** argv) {
 
 
 	printf("Completed without errors\n");
-	return 0;
+
+	return SRSRAN_SUCCESS;
 }

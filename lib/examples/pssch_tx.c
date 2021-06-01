@@ -39,7 +39,7 @@ srsran_cell_sl_t cell = {.nof_prb = 50, .N_sl_id = 0, .tm = SRSRAN_SIDELINK_TM4,
 static srsran_random_t random_gen    = NULL;
 
 uint32_t prb_start_idx = 0;
-
+/*
 void usage(char* prog)
 {
 	printf("Usage: %s [cdeipt]\n", prog);
@@ -93,6 +93,115 @@ void parse_args(int argc, char** argv)
 		usage(argv[0]);
 		exit(-1);
 	}
+}*/
+
+typedef struct {
+	bool     use_standard_lte_rates;
+	bool     disable_plots;
+	char*    input_file_name;
+	uint32_t file_start_sf_idx;
+	uint32_t nof_rx_antennas;
+	char*    rf_dev;
+	char*    rf_args;
+	double   rf_freq;
+	float    rf_gain;
+
+	// Sidelink specific args
+	uint32_t size_sub_channel;
+	uint32_t num_sub_channel;
+} prog_args_t;
+
+static prog_args_t prog_args;
+
+void args_default(prog_args_t* args)
+{
+  args->disable_plots          = false;
+  args->use_standard_lte_rates = false;
+  args->input_file_name        = NULL;
+  args->file_start_sf_idx      = 0;
+  args->nof_rx_antennas        = 1;
+  args->rf_dev                 = "";
+  args->rf_dev                 = "";
+  args->rf_args                = "";
+  args->rf_freq                = 5.92e9;
+  args->rf_gain                = 50;
+  args->size_sub_channel       = 10;
+  args->num_sub_channel        = 5;
+}
+
+void usage(prog_args_t* args, char* prog)
+{
+	printf("Usage: %s [agrnmv] -f rx_frequency_hz\n", prog);
+	printf("\t-a RF args [Default %s]\n", args->rf_args);
+	printf("\t-d RF devicename [Default %s]\n", args->rf_dev);
+	printf("\t-i input_file_name\n");
+	printf("\t-m Start subframe_idx [Default %d]\n", args->file_start_sf_idx);
+	printf("\t-g RF Gain [Default %.2f dB]\n", args->rf_gain);
+	printf("\t-A nof_rx_antennas [Default %d]\n", args->nof_rx_antennas);
+	printf("\t-c N_sl_id [Default %d]\n", cell.N_sl_id);
+	printf("\t-p nof_prb [Default %d]\n", cell.nof_prb);
+	printf("\t-s size_sub_channel [Default for 50 prbs %d]\n", args->size_sub_channel);
+	printf("\t-n num_sub_channel [Default for 50 prbs %d]\n", args->num_sub_channel);
+	printf("\t-t Sidelink transmission mode {1,2,3,4} [Default %d]\n", (cell.tm + 1));
+	printf("\t-r use_standard_lte_rates [Default %i]\n", args->use_standard_lte_rates);
+#ifdef ENABLE_GUI
+	printf("\t-w disable plots [Default enabled]\n");
+#endif
+	printf("\t-v srsran_verbose\n");
+}
+
+void parse_args(prog_args_t* args, int argc, char** argv)
+{
+	int opt;
+	args_default(args);
+
+	while ((opt = getopt(argc, argv, "acdimgpvwrxfA")) != -1) {
+		switch (opt) {
+		case 'a':
+			args->rf_args = argv[optind];
+			break;
+		case 'c':
+			cell.N_sl_id = (int32_t)strtol(argv[optind], NULL, 10);
+			break;
+		case 'd':
+			args->rf_dev = argv[optind];
+			break;
+		case 'i':
+			args->input_file_name = argv[optind];
+			break;
+		case 'm':
+			args->file_start_sf_idx = (uint32_t)strtol(argv[optind], NULL, 10);
+			break;
+		case 'g':
+			args->rf_gain = strtof(argv[optind], NULL);
+			break;
+		case 'p':
+			cell.nof_prb = (int32_t)strtol(argv[optind], NULL, 10);
+			break;
+		case 'f':
+			args->rf_freq = strtof(argv[optind], NULL);
+			break;
+		case 'A':
+			args->nof_rx_antennas = (int32_t)strtol(argv[optind], NULL, 10);
+			break;
+		case 'v':
+			srsran_verbose++;
+			break;
+		case 'w':
+			args->disable_plots = true;
+			break;
+		case 'r':
+			args->use_standard_lte_rates = true;
+			break;
+		default:
+			usage(args, argv[0]);
+			exit(-1);
+		}
+	}
+	if (args->rf_freq < 0 && args->input_file_name == NULL) {
+		usage(args, argv[0]);
+		exit(-1);
+	}
 }
 
 int main(int argc, char** argv)
@@ -103,7 +212,7 @@ int main(int argc, char** argv)
 
 	int ret = SRSRAN_ERROR;
 
-	parse_args(argc, argv);
+	parse_args(&prog_args, argc, argv);
 
 	srsran_sl_comm_resource_pool_t sl_comm_resource_pool;
 	if (srsran_sl_comm_resource_pool_get_default_config(&sl_comm_resource_pool, cell) != SRSRAN_SUCCESS) {
@@ -171,7 +280,7 @@ int main(int argc, char** argv)
 	// Transport block buffer
 	uint8_t tb[SRSRAN_SL_SCH_MAX_TB_LEN] = {};
 
-	srsran_pssch_cfg_t pssch_cfg = {prb_start_idx, nof_prb_pssch, N_x_id, /*mcs_idx*/ 4, 0, 0};
+	srsran_pssch_cfg_t pssch_cfg = {prb_start_idx + pscch.pscch_nof_prb, nof_prb_pssch, N_x_id, /*mcs_idx*/ 4, 0, 0};
 	if (srsran_pssch_set_cfg(&pssch, pssch_cfg) != SRSRAN_SUCCESS) {
 		ERROR("Error configuring PSSCH");
 		exit(-1);
@@ -191,9 +300,16 @@ int main(int argc, char** argv)
 		exit(-1);
 	}
 
+	printf("Made it here\n");
+
+	if (srsran_rf_open_devname(&radio, prog_args.rf_dev, prog_args.rf_args, prog_args.nof_rx_antennas)) {
+		ERROR("Error opening rf");
+		exit(-1);
+	}
+
 	uint32_t sf_len = SRSRAN_SF_LEN_PRB(cell.nof_prb);
 	// int srsran_rf_send(srsran_rf_t* rf, void* data, uint32_t nsamples, bool blocking)
-	srsran_rf_send(&radio, sf_buffer_2, sf_len, 0);
+	srsran_rf_send(&radio, sf_buffer_2, sf_len, true);
 
 	printf("PSCCH has %d symbols\n", pscch.nof_symbols);
 	printf("PSSCH has %d symbols\n", pssch.nof_tx_symbols);

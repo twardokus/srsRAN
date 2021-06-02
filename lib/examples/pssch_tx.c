@@ -307,6 +307,7 @@ int main(int argc, char** argv)
 		 * in a subframe. This buffer will be sent to the USRP to be transmitted.
 		 */
 		cf_t*    sf_buffer = srsran_vec_cf_malloc(sf_n_re);
+		srsran_vec_cf_zero(sf_buffer, sf_n_re);
 
 		// SCI (Sidelink Control Information)
 
@@ -330,58 +331,74 @@ int main(int argc, char** argv)
 		// PSCCH structure from the srsRAN library
 		srsran_pscch_t pscch;
 
-
+		/* Initialize the PSCCH structure
+		 *
+		 * This configures the PSCCH by allocating memory for all subcomponents (e.g., codeword
+		 * buffer) and prepares the PSCCH to be loaded with a payload. It also sets up elements
+		 * like the CRC polynomial and coding parameters for use in encoding (and similar)
+		 * operations.
+		 */
 		if (srsran_pscch_init(&pscch, SRSRAN_MAX_PRB) != SRSRAN_SUCCESS) {
 			ERROR("Error in PSCCH init");
 			return SRSRAN_ERROR;
 		}
 
+		/* This sets parameters of the PSCCH according to the sidelink cell; for example, the
+		 * number of symbols and SCI length are set based on sidelink transmission mode (1-4)
+		 */
 		if (srsran_pscch_set_cell(&pscch, cell) != SRSRAN_SUCCESS) {
 			ERROR("Error in PSCCH init");
 			return SRSRAN_ERROR;
 		}
 
-		// SCI message bits
+		// Create a byte array to hold the SCI bits which will be transmitted
 		uint8_t sci_tx[SRSRAN_SCI_MAX_LEN] = {};
-		if (sci.format == SRSRAN_SCI_FORMAT0) {
-			if (srsran_sci_format0_pack(&sci, sci_tx) != SRSRAN_SUCCESS) {
-				printf("Error packing sci format 0\n");
-				return SRSRAN_ERROR;
-			}
-		} else if (sci.format == SRSRAN_SCI_FORMAT1) {
-			if (srsran_sci_format1_pack(&sci, sci_tx) != SRSRAN_SUCCESS) {
-				printf("Error packing sci format 1\n");
-				return SRSRAN_ERROR;
-			}
+
+		// Pack the SCI message as format 1 into the sci_tx array of bits
+		if (srsran_sci_format1_pack(&sci, sci_tx) != SRSRAN_SUCCESS) {
+			printf("Error packing sci format 1\n");
+			return SRSRAN_ERROR;
 		}
 
 		printf("Tx payload: ");
 		srsran_vec_fprint_hex(stdout, sci_tx, sci.sci_len);
 
-		// Put SCI into PSCCH
+		/* Encode the formatted SCI message as PSCCH and place in the subframe buffer at
+		 * prb_start_idx, which is zero here.
+		 */
 		srsran_pscch_encode(&pscch, sci_tx, sf_buffer, prb_start_idx);
 
-		//-----------------------------------------------------------------
-		// copied from pssch_test.c and then modified as needed
+		// PSSCH (Physical Sidelink Shared CHannel)
+
 		srsran_pssch_t pssch = {};
+
+		/* Initialize the PSSCH with channel-specific parameters, as above for PSCCH */
 		if (srsran_pssch_init(&pssch, &cell, &sl_comm_resource_pool) != SRSRAN_SUCCESS) {
 			ERROR("Error initializing PSSCH");
 			return SRSRAN_ERROR;
 		}
 
+		// the largest number of PRBs allowed for DFT pre-coding
 		uint32_t nof_prb_pssch = srsran_dft_precoding_get_valid_prb(cell.nof_prb);
-		uint32_t N_x_id        = 255;
-		cf_t*    sf_buffer_2     = srsran_vec_cf_malloc(sf_n_re);
-		if (!sf_buffer_2) {
-			ERROR("Error allocating memory");
-			return SRSRAN_ERROR;
-		}
-		srsran_vec_cf_zero(sf_buffer_2, sf_n_re);
 
-		// Transport block buffer
+		/* NXID is the 16-bit CRC of the PSCCH SCI message, used as the PSSCH scrambling identity
+		 */
+		uint32_t N_x_id = 255;
+
+		// array to hold the bit representation of the transport block (TB) to be sent via PSSCH
 		uint8_t tb[SRSRAN_SL_SCH_MAX_TB_LEN] = {};
 
-		srsran_pssch_cfg_t pssch_cfg = {prb_start_idx + pscch.pscch_nof_prb, nof_prb_pssch, N_x_id, /*mcs_idx*/ 4, 0, 0};
+		// configure the PSSCH structure with appropriate parameters
+		srsran_pssch_cfg_t pssch_cfg = {
+				prb_start_idx + pscch.pscch_nof_prb, /* PRB start index for PSSCH immediately after PSCCH */
+				nof_prb_pssch,
+				N_x_id,
+				4, /*mcs_idx - MCS 4 is 16-QAM*/
+				0, /*Resource Indication Value (RIV) index*/
+				0  /*subframe index*/
+		};
+
+		// configure the PSSCH using the configuration structure created above
 		if (srsran_pssch_set_cfg(&pssch, pssch_cfg) != SRSRAN_SUCCESS) {
 			ERROR("Error configuring PSSCH");
 			exit(-1);
@@ -395,19 +412,18 @@ int main(int argc, char** argv)
 			tb[i] = srsran_random_uniform_int_dist(random_gen, 0, 1);
 		}
 
-		// PSSCH encoding
-		if (srsran_pssch_encode(&pssch, tb, pssch.sl_sch_tb_len, sf_buffer_2) != SRSRAN_SUCCESS) {
+		/* Encode and place TB in PSSCH RBs of sf_buffer */
+		if (srsran_pssch_encode(&pssch, tb, pssch.sl_sch_tb_len, sf_buffer) != SRSRAN_SUCCESS) {
 			ERROR("Error encoding PSSCH");
 			exit(-1);
 		}
 
 		// int srsran_rf_send(srsran_rf_t* rf, void* data, uint32_t nsamples, bool blocking)
-		srsran_rf_send(&radio, sf_buffer_2, sf_len, true);
+		srsran_rf_send(&radio, sf_buffer, sf_len, true);
 
 		printf("Sent data to USRP!\n");
 
 		free(sf_buffer);
-		free(sf_buffer_2);
 		srsran_sci_free(&sci);
 		srsran_pscch_free(&pscch);
 		srsran_pssch_free(&pssch);

@@ -412,7 +412,9 @@ int main(int argc, char** argv)
 			tb[i] = srsran_random_uniform_int_dist(random_gen, 0, 1);
 		}
 
-		/* Encode and place TB in PSSCH RBs of sf_buffer */
+		/* Encode and place TB in PSSCH RBs of sf_buffer
+		 *
+		 */
 		if (srsran_pssch_encode(&pssch, tb, pssch.sl_sch_tb_len, sf_buffer) != SRSRAN_SUCCESS) {
 			ERROR("Error encoding PSSCH");
 			exit(-1);

@@ -233,6 +233,8 @@ void parse_args(prog_args_t* args, int argc, char** argv)
 int main(int argc, char** argv)
 {
 
+	parse_args(&prog_args, argc, argv);
+
 	// variables
 
 	/* sf_len defines the length of the subframe in kHz
@@ -247,7 +249,9 @@ int main(int argc, char** argv)
 	// SRSRAN_SF_LEN_PRB(50) -> 11520
 	uint32_t sf_len = SRSRAN_SF_LEN_PRB(cell.nof_prb);
 
-	// sampling rate is 15kHz * symbol size (which is 768 subcarriers) which yields sample rate 11.52 MHz
+	/* sampling rate is 15kHz * symbol size (which is 768 subcarriers)
+	 * which yields sample rate of 11.52 MHz
+	 */
 	int srate = srsran_sampling_freq_hz(cell.nof_prb);
 
 	// configure the signal interrupt to exit cleanly
@@ -268,21 +272,38 @@ int main(int argc, char** argv)
 	srsran_rf_set_tx_srate(&radio, (double)srate);
 	srsran_rf_set_tx_freq(&radio, /*# of channels*/ 1, prog_args.rf_freq);
 
-
+	// report radio parameters
+	printf("Tx gain:\t%.2f dB\n", prog_args.rf_gain);
+	printf("Sample rate:\t%.2f MHz\n", (float)srate/1000000);
+	printf("RF freq:\t%.6f MHz\n", (float) prog_args.rf_freq / 1000000);
 
 	for(int i = 0; i < 10; i++) {
 		//-----------------------------------------------------------------
 		// copied from pscch_test.c and then modified as needed
 
-		parse_args(&prog_args, argc, argv);
-
+		/* Create a sidelink resource pool
+		 *
+		 * This sets up the resource pool object to assign the size and number of
+		 * subchannels (for 50 PRB there are 5 subchannels of 10 PRB each)
+		 */
 		srsran_sl_comm_resource_pool_t sl_comm_resource_pool;
 		if (srsran_sl_comm_resource_pool_get_default_config(&sl_comm_resource_pool, cell) != SRSRAN_SUCCESS) {
 			ERROR("Error initializing sl_comm_resource_pool");
 			return SRSRAN_ERROR;
 		}
 
+		/* The number of resource elements in a subframe
+		 *
+		 * A resource element (RE) is the smallest physical channel unit, addressable
+		 * by subcarrier index k and symbol index l within a PRB
+		 *
+		 * As there are 50 PRBs with 12 subcarriers over 7 OFDM symbols (under normal CP)
+		 * per slot (1/2 subframe), then 2 slots * 50 PRBs * 12 subcarriers * 7 symbols
+		 * gives the total number of resource elements in a subframe, 8400.
+		 */
 		uint32_t sf_n_re   = SRSRAN_SF_LEN_RE(cell.nof_prb, cell.cp);
+
+
 		cf_t*    sf_buffer = srsran_vec_cf_malloc(sf_n_re);
 
 		// SCI

@@ -303,16 +303,34 @@ int main(int argc, char** argv)
 		 */
 		uint32_t sf_n_re   = SRSRAN_SF_LEN_RE(cell.nof_prb, cell.cp);
 
-
+		/* A "vector" of complex floats of size equal to the number of resource elements
+		 * in a subframe. This buffer will be sent to the USRP to be transmitted.
+		 */
 		cf_t*    sf_buffer = srsran_vec_cf_malloc(sf_n_re);
 
-		// SCI
+		// SCI (Sidelink Control Information)
+
+		// SCI structure from srsRAN library
 		srsran_sci_t sci;
+
+		/* Initialize the SCI structure
+		 *
+		 * This fills in SCI information from the sidelink cell and resource pool such
+		 * as the number of PRBs and transmission mode, as well as setting the SCI Format
+		 * to format 1 (for Rel. 14, as opposed to format 0 for Rel. 12 D2D which is an
+		 * antecedent of LTE-V2X
+		 */
 		srsran_sci_init(&sci, &cell, &sl_comm_resource_pool);
+
+		// MCS index 2 is QPSK, which is always used for PSCCH. 16-QAM is supported for PSSCH only.
 		sci.mcs_idx = 2;
 
-		// PSCCH
+		// PSCCH (Physical Sidelink Control CHannel)
+
+		// PSCCH structure from the srsRAN library
 		srsran_pscch_t pscch;
+
+
 		if (srsran_pscch_init(&pscch, SRSRAN_MAX_PRB) != SRSRAN_SUCCESS) {
 			ERROR("Error in PSCCH init");
 			return SRSRAN_ERROR;

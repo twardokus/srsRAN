@@ -45,61 +45,7 @@ srsran_cell_sl_t cell = {.nof_prb = 50, .N_sl_id = 0, .tm = SRSRAN_SIDELINK_TM4,
 static srsran_random_t random_gen    = NULL;
 
 uint32_t prb_start_idx = 0;
-/*
-void usage(char* prog)
-{
-	printf("Usage: %s [cdeipt]\n", prog);
-	printf("\t-p nof_prb [Default %d]\n", cell.nof_prb);
-	printf("\t-c N_sl_id [Default %d]\n", cell.N_sl_id);
-	printf("\t-t Sidelink transmission mode {1,2,3,4} [Default %d]\n", (cell.tm + 1));
-	printf("\t-v [set srsran_verbose to debug, default none]\n");
-}
 
-void parse_args(int argc, char** argv)
-{
-	int opt;
-	while ((opt = getopt(argc, argv, "ceiptv")) != -1) {
-		switch (opt) {
-		case 'c':
-			cell.N_sl_id = (int32_t)strtol(argv[optind], NULL, 10);
-			break;
-		case 'p':
-			cell.nof_prb = (uint32_t)strtol(argv[optind], NULL, 10);
-			break;
-		case 't':
-			switch (strtol(argv[optind], NULL, 10)) {
-			case 1:
-				cell.tm = SRSRAN_SIDELINK_TM1;
-				break;
-			case 2:
-				cell.tm = SRSRAN_SIDELINK_TM2;
-				break;
-			case 3:
-				cell.tm = SRSRAN_SIDELINK_TM3;
-				break;
-			case 4:
-				cell.tm = SRSRAN_SIDELINK_TM4;
-				break;
-			default:
-				usage(argv[0]);
-				exit(-1);
-				break;
-			}
-			break;
-			case 'v':
-				srsran_verbose++;
-				break;
-			default:
-				usage(argv[0]);
-				exit(-1);
-		}
-	}
-	if (cell.cp == SRSRAN_CP_EXT && cell.tm >= SRSRAN_SIDELINK_TM3) {
-		ERROR("Selected TM does not support extended CP");
-		usage(argv[0]);
-		exit(-1);
-	}
-}*/
 
 void sig_int_handler(int signo)
 {
@@ -267,41 +213,68 @@ int main(int argc, char** argv)
 		exit(-1);
 	}
 
-	// configure radio parameters
-	srsran_rf_set_tx_gain(&radio, prog_args.rf_gain);
-	srsran_rf_set_tx_srate(&radio, (double)srate);
-	srsran_rf_set_tx_freq(&radio, /*# of channels*/ 1, prog_args.rf_freq);
+	/* configure and report radio parameters */
 
-	// report radio parameters
-	printf("Tx gain:\t%.2f dB\n", prog_args.rf_gain);
-	printf("Sample rate:\t%.2f MHz\n", (float)srate/1000000);
-	printf("RF freq:\t%.6f MHz\n", (float) prog_args.rf_freq / 1000000);
+	srsran_rf_set_tx_gain(&radio, 50);
+
+	printf("Tx gain:\t%.2f dB\n",
+			srsran_rf_get_tx_gain(&radio));
+	printf("Sample rate:\t%.2f MHz\n",
+			srsran_rf_set_tx_srate(&radio, (double)srate)/1000000);
+	printf("RF freq:\t%.6f MHz\n",
+			srsran_rf_set_tx_freq(&radio, /*# of channels*/ 1, prog_args.rf_freq) / 1000000);
+
+
+	/*sync to GPS*/
+	srsran_ue_sync_t ue_sync = { .mode = SYNC_MODE_GNSS,
+			.max_prb = cell.nof_prb, .stream_single = &radio};
+
+//	srsran_ue_sync_t ue_sync = {};
+	srsran_cell_t sync_cell = {};
+	sync_cell.nof_prb       = cell.nof_prb;
+//	printf("ue_sync.max_prb = %d\n", ue_sync.max_prb);
+//	printf("cell.nof_prb = %d\n", cell.nof_prb);
+	sync_cell.cp            = SRSRAN_CP_NORM;
+	sync_cell.nof_ports     = 1;
+
+	if (srsran_ue_sync_set_cell(&ue_sync, sync_cell)) {
+		ERROR("Error initiating ue_sync");
+		exit(-1);
+	}
+
+	/* Create a sidelink resource pool
+	 *
+	 * This sets up the resource pool object to assign the size and number of
+	 * subchannels (for 50 PRB there are 5 subchannels of 10 PRB each)
+	 */
+	srsran_sl_comm_resource_pool_t sl_comm_resource_pool;
+	if (srsran_sl_comm_resource_pool_get_default_config(&sl_comm_resource_pool, cell) != SRSRAN_SUCCESS) {
+		ERROR("Error initializing sl_comm_resource_pool");
+		return SRSRAN_ERROR;
+	}
+
+	printf("Configured resource pool with:\n");
+	printf("\t%d subchannels\n", sl_comm_resource_pool.num_sub_channel);
+	printf("\tSubchannels of size: %d\n", sl_comm_resource_pool.size_sub_channel);
+
+	/* The number of resource elements in a subframe
+	 *
+	 * A resource element (RE) is the smallest physical channel unit, addressable
+	 * by subcarrier index k and symbol index l within a PRB
+	 *
+	 * As there are 50 PRBs with 12 subcarriers over 7 OFDM symbols (under normal CP)
+	 * per slot (1/2 subframe), then 2 slots * 50 PRBs * 12 subcarriers * 7 symbols
+	 * gives the total number of resource elements in a subframe, 8400.
+	 */
+	uint32_t sf_n_re   = SRSRAN_SF_LEN_RE(cell.nof_prb, cell.cp);
 
 	for(int i = 0; i < 10; i++) {
-		//-----------------------------------------------------------------
-		// copied from pscch_test.c and then modified as needed
 
-		/* Create a sidelink resource pool
-		 *
-		 * This sets up the resource pool object to assign the size and number of
-		 * subchannels (for 50 PRB there are 5 subchannels of 10 PRB each)
-		 */
-		srsran_sl_comm_resource_pool_t sl_comm_resource_pool;
-		if (srsran_sl_comm_resource_pool_get_default_config(&sl_comm_resource_pool, cell) != SRSRAN_SUCCESS) {
-			ERROR("Error initializing sl_comm_resource_pool");
-			return SRSRAN_ERROR;
-		}
-
-		/* The number of resource elements in a subframe
-		 *
-		 * A resource element (RE) is the smallest physical channel unit, addressable
-		 * by subcarrier index k and symbol index l within a PRB
-		 *
-		 * As there are 50 PRBs with 12 subcarriers over 7 OFDM symbols (under normal CP)
-		 * per slot (1/2 subframe), then 2 slots * 50 PRBs * 12 subcarriers * 7 symbols
-		 * gives the total number of resource elements in a subframe, 8400.
-		 */
-		uint32_t sf_n_re   = SRSRAN_SF_LEN_RE(cell.nof_prb, cell.cp);
+		for(int k = 0; k < 80; k++) printf("=");
+		printf("\n");
+		printf("Current subframe index is %d\n", srsran_ue_sync_get_sfidx(&ue_sync));
+		for(int k = 0; k < 80; k++) printf("=");
+		printf("\n");
 
 		/* A "vector" of complex floats of size equal to the number of resource elements
 		 * in a subframe. This buffer will be sent to the USRP to be transmitted.
@@ -322,6 +295,7 @@ int main(int argc, char** argv)
 		 * antecedent of LTE-V2X
 		 */
 		srsran_sci_init(&sci, &cell, &sl_comm_resource_pool);
+
 
 		// MCS index 2 is QPSK, which is always used for PSCCH. 16-QAM is supported for PSSCH only.
 		sci.mcs_idx = 2;
@@ -354,13 +328,18 @@ int main(int argc, char** argv)
 		// Create a byte array to hold the SCI bits which will be transmitted
 		uint8_t sci_tx[SRSRAN_SCI_MAX_LEN] = {};
 
+		printf("SCI format ");
+		sci.format == SRSRAN_SCI_FORMAT1 ? printf("1") : printf("0");
+		printf(" with length %d", sci.sci_len);
+		printf("\n");
+
 		// Pack the SCI message as format 1 into the sci_tx array of bits
 		if (srsran_sci_format1_pack(&sci, sci_tx) != SRSRAN_SUCCESS) {
 			printf("Error packing sci format 1\n");
 			return SRSRAN_ERROR;
 		}
 
-		printf("Tx payload: ");
+		printf("SCI: ");
 		srsran_vec_fprint_hex(stdout, sci_tx, sci.sci_len);
 
 		/* Encode the formatted SCI message as PSCCH and place in the subframe buffer at
@@ -412,6 +391,10 @@ int main(int argc, char** argv)
 			tb[i] = srsran_random_uniform_int_dist(random_gen, 0, 1);
 		}
 
+		//printf("TB payload: ");
+		//srsran_vec_fprint_hex(stdout, tb, pssch.sl_sch_tb_len);
+
+
 		/* Encode and place TB in PSSCH RBs of sf_buffer
 		 *
 		 */
@@ -421,9 +404,9 @@ int main(int argc, char** argv)
 		}
 
 		// int srsran_rf_send(srsran_rf_t* rf, void* data, uint32_t nsamples, bool blocking)
-		srsran_rf_send(&radio, sf_buffer, sf_len, true);
+		srsran_rf_send2(&radio, sf_buffer, sf_len, true, true, false);
 
-		printf("Sent data to USRP!\n");
+		printf("Transmitting!\n");
 
 		free(sf_buffer);
 		srsran_sci_free(&sci);
